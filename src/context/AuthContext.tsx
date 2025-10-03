@@ -54,49 +54,43 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const checkAuthToken = async () => {
+    console.log('🔍 AuthContext: Checking auth token...');
     try {
-      const token = await AsyncStorage.getItem('authToken');
-      const userData = await AsyncStorage.getItem('userData');
-      const walletSetupCompleted = await AsyncStorage.getItem('walletSetupCompleted');
+      setLoading(true);
       
-      if (token && userData) {
-        // Verify token is still valid with backend
-        const isValid = await verifyTokenWithBackend(token);
-        if (isValid) {
-          const user = JSON.parse(userData);
-          setUser(user);
+      // Check for stored token
+      const token = await AsyncStorage.getItem('authToken');
+      
+      if (token) {
+        // User has logged in before
+        const userStr = await AsyncStorage.getItem('userData');
+        if (userStr) {
+          const userData = JSON.parse(userStr);
+          setUser(userData);
           
-          // Check KYC status to determine navigation
-          const kycService = KYCService.getInstance();
-          const kycResult = await kycService.getKYCStatus();
+          // Check if they have wallets (SKIP KYC check)
+          const walletsStr = await AsyncStorage.getItem('wallets');
+          const hasWallets = walletsStr && JSON.parse(walletsStr).length > 0;
           
-          if (kycResult.success) {
-            setKycStatus(kycResult.kycStatus);
-            console.log('🔍 Startup KYC Status:', kycResult.kycStatus);
-            
-            if (kycResult.kycStatus === 'notstarted' || kycResult.kycStatus === 'rejected') {
-              // User needs to complete KYC
-              console.log('🔍 KYC required, user will be directed to KYC onboarding');
-              setNeedsWalletSetup(true);
-            } else if (kycResult.kycStatus === 'pending' || kycResult.kycStatus === 'approved') {
-              // KYC is submitted or approved, go to home screen
-              console.log('🔍 KYC completed, user can access home screen');
-              setNeedsWalletSetup(false);
-            }
-          } else {
-            // Failed to get KYC status, default to requiring KYC
-            console.log('❌ Failed to get KYC status on startup, defaulting to KYC required');
-            setKycStatus('notstarted');
-            setNeedsWalletSetup(true);
-          }
+          setNeedsWalletSetup(!hasWallets);
+          console.log('✅ AuthContext: User authenticated, hasWallets:', hasWallets);
         } else {
-          // Token expired, clear storage
-          await clearAuthData();
+          // Token but no user data, clear token
+          await AsyncStorage.removeItem('authToken');
+          setUser(null);
+          setNeedsWalletSetup(false);
+          console.log('⚠️ AuthContext: Invalid token, cleared');
         }
+      } else {
+        // No token, user needs to sign in
+        setUser(null);
+        setNeedsWalletSetup(false);
+        console.log('⚠️ AuthContext: No auth token found');
       }
     } catch (error) {
-      console.error('Error checking auth token:', error);
-      await clearAuthData();
+      console.error('❌ Error checking auth token:', error);
+      setUser(null);
+      setNeedsWalletSetup(false);
     } finally {
       setLoading(false);
     }
@@ -225,36 +219,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setUser(result.user);
       console.log('✅ Sign in successful for user:', result.user);
       
-      // Check KYC status first to determine navigation
-      const kycService = KYCService.getInstance();
-      const kycResult = await kycService.getKYCStatus();
+      // SKIP KYC - Just check if user has wallets
+      const walletsStr = await AsyncStorage.getItem('wallets');
+      const hasWallets = walletsStr && JSON.parse(walletsStr).length > 0;
       
-      if (kycResult.success) {
-        setKycStatus(kycResult.kycStatus);
-        console.log('🔍 KYC Status:', kycResult.kycStatus);
-        
-        if (kycResult.kycStatus === 'notstarted') {
-          // User needs to complete KYC, skip wallet setup and go to KYC
-          console.log('🔍 KYC not started, user will be directed to KYC onboarding');
-          setNeedsWalletSetup(true); // This will show AuthStack with KYC flow
-          return;
-        } else if (kycResult.kycStatus === 'pending' || kycResult.kycStatus === 'approved') {
-          // KYC is submitted or approved, go to home screen
-          console.log('🔍 KYC pending or approved, user can access home screen');
-          setNeedsWalletSetup(false);
-          return;
-        } else if (kycResult.kycStatus === 'rejected') {
-          // KYC rejected, user needs to restart KYC
-          console.log('🔍 KYC rejected, user needs to restart KYC');
-          setNeedsWalletSetup(true);
-          return;
-        }
-      } else {
-        // Failed to get KYC status, default to requiring KYC
-        console.log('❌ Failed to get KYC status, defaulting to KYC required');
-        setKycStatus('notstarted');
-        setNeedsWalletSetup(true);
-      }
+      setNeedsWalletSetup(!hasWallets);
+      console.log('✅ Sign in successful, hasWallets:', hasWallets);
     } catch (error: any) {
       console.log('❌ Sign in error:', error);
       throw new Error(error.message);
@@ -643,13 +613,17 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const completeWalletSetup = async () => {
     console.log('🔄 completeWalletSetup called - current needsWalletSetup:', needsWalletSetup);
     setNeedsWalletSetup(false);
-    // Persist the wallet setup completion
-    await AsyncStorage.setItem('walletSetupCompleted', 'true');
+    // Set a simple user for the app to function
+    setUser({
+      id: 'local-user',
+      uid: 'local-user',
+      email: 'wallet@local.app',
+      fullName: 'Wallet User',
+      emailVerified: true,
+    });
     console.log('✅ Wallet setup completed - needsWalletSetup set to false');
-    console.log('🔍 Current user state:', user ? 'User logged in' : 'No user');
-    console.log('🔍 Wallet setup completion saved to AsyncStorage');
-
-    // Proactively navigate to Home once navigator is ready
+    
+    // Navigate to Home
     setTimeout(() => {
       try {
         navigate('Home');

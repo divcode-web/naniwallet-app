@@ -71,24 +71,21 @@ const LoadingScreen: React.FC = () => {
 
 const AuthStack: React.FC = () => {
   const { theme } = useTheme();
-  const { user, needsWalletSetup, kycStatus } = useAuth();
+  const { user, needsWalletSetup } = useAuth();
 
-  // Determine initial route based on user state and KYC status
+  // Determine initial route
   let initialRoute = "SignIn";
   
   if (user && needsWalletSetup) {
-    if (kycStatus === 'notstarted' || kycStatus === 'rejected') {
-      initialRoute = "KYCWelcome";
-    } else {
-      initialRoute = "WalletSetup";
-    }
+    // User logged in but needs wallet
+    initialRoute = "WalletSetup";
   }
   
-  console.log('🔧 AuthStack - initialRoute:', initialRoute, 'user:', user ? 'logged in' : 'not logged in', 'needsWalletSetup:', needsWalletSetup, 'kycStatus:', kycStatus);
+  console.log('🔧 AuthStack - initialRoute:', initialRoute);
 
   return (
+    // @ts-ignore - Navigation type mismatch in @react-navigation/stack v7, runtime works fine
     <Stack.Navigator
-      key={initialRoute} // Force re-render when initial route changes
       initialRouteName={initialRoute}
       screenOptions={{
         headerShown: false,
@@ -99,11 +96,7 @@ const AuthStack: React.FC = () => {
       <Stack.Screen name="SignUp" component={SignUpScreen} />
       <Stack.Screen name="EmailOTPVerification" component={EmailOTPVerificationScreen as any} />
       <Stack.Screen name="PhoneOTPVerification" component={PhoneOTPVerificationScreen as any} />
-      <Stack.Screen name="KYCWelcome" component={KYCWelcomeScreen as any} />
-      <Stack.Screen name="KYCPersonalInfo" component={KYCPersonalInfoScreen as any} />
-      <Stack.Screen name="KYCDocumentUpload" component={KYCDocumentUploadScreen as any} />
-      <Stack.Screen name="KYCCamera" component={KYCCameraScreen as any} />
-      <Stack.Screen name="KYCReview" component={KYCReviewScreen as any} />
+      <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
       <Stack.Screen name="WalletSetup" component={WalletSetupScreen} />
       <Stack.Screen name="WalletSelect" component={WalletSelectScreen} />
       <Stack.Screen name="ManageWallet" component={ManageWalletScreen} />
@@ -113,7 +106,6 @@ const AuthStack: React.FC = () => {
       <Stack.Screen name="TopUp" component={TopUpScreen} />
       <Stack.Screen name="SelectReceiveToken" component={SelectReceiveTokenScreen} />
       <Stack.Screen name="ReceiveDialog" component={ReceiveScreen} />
-      <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
     </Stack.Navigator>
   );
 };
@@ -124,8 +116,8 @@ const MainStack: React.FC = () => {
   console.log('🏠 MainStack - rendering with Home as initial route');
 
   return (
+    // @ts-ignore - Navigation type mismatch in @react-navigation/stack v7, runtime works fine
     <Stack.Navigator
-      key="main-stack"
       initialRouteName="Home"
       screenOptions={{
         headerShown: false,
@@ -149,15 +141,9 @@ const MainStack: React.FC = () => {
       <Stack.Screen name="WalletDashboard" component={WalletDashboardScreen} />
       <Stack.Screen name="SelectSendToken" component={SelectSendTokenScreen} />
       <Stack.Screen name="SendDialog" component={SendScreen} />
-      <Stack.Screen name="TopUp" component={TopUpScreen} />
+      <Stack.Screen name="TopUp" component={TopUpScreen} options={{ title: 'Top Up' }} />
       <Stack.Screen name="SelectReceiveToken" component={SelectReceiveTokenScreen} />
       <Stack.Screen name="ReceiveDialog" component={ReceiveScreen} />
-      {/* KYC Screens - Available from main app for re-verification */}
-      <Stack.Screen name="KYCWelcome" component={KYCWelcomeScreen as any} />
-      <Stack.Screen name="KYCPersonalInfo" component={KYCPersonalInfoScreen as any} />
-      <Stack.Screen name="KYCDocumentUpload" component={KYCDocumentUploadScreen as any} />
-      <Stack.Screen name="KYCCamera" component={KYCCameraScreen as any} />
-      <Stack.Screen name="KYCReview" component={KYCReviewScreen as any} />
     </Stack.Navigator>
   );
 };

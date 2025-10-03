@@ -27,27 +27,11 @@ interface HomeScreenProps {
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const { theme, toggleTheme } = useTheme();
-  const { user, signOut, kycStatus, checkKYCStatus } = useAuth();
+  const { user, signOut } = useAuth();
   const { wallet, clearWallet } = useWeb3Auth();
   const { locale } = useLocale();
   const backPressCount = useRef(0);
 
-  // Check KYC status on component mount
-  useEffect(() => {
-    if (user) {
-      checkKYCStatus();
-    }
-  }, [user, checkKYCStatus]);
-
-  // Refresh KYC status whenever the screen comes into focus
-  useFocusEffect(
-    React.useCallback(() => {
-      if (user) {
-        console.log('🔄 HomeScreen focused - refreshing KYC status');
-        checkKYCStatus();
-      }
-    }, [user, checkKYCStatus])
-  );
 
   const handleSignOut = async () => {
     try {
@@ -90,87 +74,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     };
   }, []);
 
-  // Helper functions for KYC status
-  const getKYCStatusText = (status: string | null) => {
-    switch (status) {
-      case 'approved':
-        return t('kyc_verified', locale);
-      case 'pending':
-        return t('kyc_under_review', locale);
-      case 'rejected':
-        return t('kyc_rejected', locale);
-      case 'notstarted':
-      default:
-        return t('kyc_pending', locale);
-    }
-  };
-
-  const getKYCStatusDescription = (status: string | null) => {
-    switch (status) {
-      case 'approved':
-        return t('kyc_verified', locale);
-      case 'pending':
-        return t('kyc_description_pending', locale);
-      case 'rejected':
-        return t('kyc_description_rejected', locale);
-      case 'notstarted':
-      default:
-        return t('kyc_description_not_started', locale);
-    }
-  };
-
-  const getKYCStatusColor = (status: string | null) => {
-    switch (status) {
-      case 'approved':
-        return theme.colors.success;
-      case 'pending':
-        return theme.colors.warning;
-      case 'rejected':
-        return theme.colors.error;
-      case 'notstarted':
-      default:
-        return theme.colors.textSecondary;
-    }
-  };
-
-  const getKYCStatusIcon = (status: string | null) => {
-    switch (status) {
-      case 'approved':
-        return 'verified';
-      case 'pending':
-        return 'schedule';
-      case 'rejected':
-        return 'error';
-      case 'notstarted':
-      default:
-        return 'warning';
-    }
-  };
-
-  const isKYCApproved = kycStatus === 'approved';
-
-  const handleKYCStatusPress = () => {
-    if (!isKYCApproved && kycStatus !== 'pending') {
-      navigation.navigate('KYCWelcome');
-    }
-  };
-
-  const handleRestrictedAction = () => {
-    Alert.alert(
-      t('account_verification_required', locale),
-      t('kyc_verification_message', locale),
-      [
-        {
-          text: t('cancel', locale),
-          style: 'cancel',
-        },
-        {
-          text: t('start_verification', locale),
-          onPress: handleKYCStatusPress,
-        },
-      ]
-    );
-  };
 
   const styles = StyleSheet.create({
     container: {
@@ -517,53 +420,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
       </View>
 
       <ScrollView style={styles.content}>
-        {/* KYC Warning Banner for non-approved users */}
-        {!isKYCApproved && (
-          <View style={styles.kycBanner}>
-            <Icon name="info" size={20} color={theme.colors.warning} />
-            <Text style={styles.kycBannerText}>
-              {kycStatus === 'pending' 
-                ? t('kyc_banner_pending', locale)
-                : t('kyc_banner_not_started', locale)}
-            </Text>
-          </View>
-        )}
-
-        <TouchableOpacity 
-          style={styles.kycStatusCard}
-          onPress={handleKYCStatusPress}
-          disabled={isKYCApproved || kycStatus === 'pending'}
-          activeOpacity={isKYCApproved || kycStatus === 'pending' ? 1 : 0.7}
-        >
-          <View style={styles.kycStatusRow}>
-            <View style={styles.kycStatusLeft}>
-              <View style={styles.kycStatusIcon}>
-                <Icon 
-                  name={getKYCStatusIcon(kycStatus)} 
-                  size={24} 
-                  color={getKYCStatusColor(kycStatus)} 
-                />
-              </View>
-              <View style={styles.kycStatusInfo}>
-                <Text style={styles.kycStatusTitle}>{t('account_verification', locale)}</Text>
-                <Text style={[styles.kycStatusText, { color: getKYCStatusColor(kycStatus) }]}>
-                  {getKYCStatusText(kycStatus)}
-                </Text>
-                <Text style={styles.kycStatusDescription}>
-                  {getKYCStatusDescription(kycStatus)}
-                </Text>
-              </View>
-            </View>
-            {!isKYCApproved && kycStatus !== 'pending' && (
-              <TouchableOpacity style={styles.kycActionButton} onPress={handleKYCStatusPress}>
-                <Text style={styles.kycActionText}>
-                  {kycStatus === 'rejected' ? t('retry', locale) : t('start', locale)}
-                </Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        </TouchableOpacity>
-
         <View style={styles.welcomeCard}>
           <Text style={styles.welcomeTitle}>{t('nani_wallet_title', locale)}</Text>
           <Text style={styles.welcomeText}>
@@ -571,38 +427,23 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
           </Text>
         </View>
 
-        <View style={[styles.quickActions, !isKYCApproved && styles.restrictedContent]}>
+        <View style={styles.quickActions}>
           <Text style={styles.sectionTitle}>{t('quick_actions', locale)}</Text>
           <View style={styles.actionGrid}>
             {quickActions.map((action, index) => (
               <TouchableOpacity
                 key={index}
-                style={[
-                  styles.actionCard,
-                  !isKYCApproved && { opacity: 0.5 }
-                ]}
+                style={styles.actionCard}
                 onPress={() => {
-                  if (!isKYCApproved) {
-                    handleRestrictedAction();
-                    return;
-                  }
                   if (action.action) {
                     navigation.navigate(action.action);
                   }
                 }}
-                disabled={!isKYCApproved}
               >
                 <View style={[styles.actionIcon, { backgroundColor: action.color + '20' }]}>
                   <Icon name={action.icon} size={24} color={action.color} />
                 </View>
                 <Text style={styles.actionTitle}>{action.title}</Text>
-                {!isKYCApproved && (
-                  <View style={styles.restrictedOverlay}>
-                    <View style={styles.restrictedIcon}>
-                      <Icon name="lock" size={16} color={theme.colors.textSecondary} />
-                    </View>
-                  </View>
-                )}
               </TouchableOpacity>
             ))}
           </View>

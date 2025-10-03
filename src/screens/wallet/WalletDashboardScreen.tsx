@@ -17,6 +17,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../context/ThemeContext';
 import { useWeb3Auth } from '../../context/Web3AuthContext';
+import { useCurrency } from '../../context/CurrencyContext';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { Clipboard } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -34,7 +35,9 @@ interface WalletDashboardScreenProps {
 export const WalletDashboardScreen: React.FC<WalletDashboardScreenProps> = ({ navigation }) => {
   const { theme } = useTheme();
   const { wallet, wallets, getWalletBalance, removeWallet } = useWeb3Auth();
-  const [balance, setBalance] = useState('0.0');
+  const { formatPrice, currencyInfo } = useCurrency();
+  const [balance, setBalance] = useState('0.0'); // Keep for legacy
+  const [totalUSDValue, setTotalUSDValue] = useState(0); // New USD total
   const [networkLabel, setNetworkLabel] = useState('All Network');
   const [networkSheetVisible, setNetworkSheetVisible] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -44,6 +47,8 @@ export const WalletDashboardScreen: React.FC<WalletDashboardScreenProps> = ({ na
   const [selectedTokens, setSelectedTokens] = useState<NetworkToken[]>([]);
   const [balances, setBalances] = useState<Record<string, number>>({});
   const [hasSelection, setHasSelection] = useState<boolean>(false);
+  const [actionMenuVisible, setActionMenuVisible] = useState(false);
+  const [selectedTokenForAction, setSelectedTokenForAction] = useState<NetworkToken | null>(null);
 
   useEffect(() => {
     setHasSelection(selectedTokens.length > 0);
@@ -53,8 +58,6 @@ export const WalletDashboardScreen: React.FC<WalletDashboardScreenProps> = ({ na
   const [chains, setChains] = useState<NetworkChain[]>([]);
   const [chainsLoading, setChainsLoading] = useState<boolean>(false);
   const [balanceLoading, setBalanceLoading] = useState<boolean>(false);
-  const lastScrollYRef = useRef(0);
-  const lastAutoRefreshTsRef = useRef(0);
 
   const showToast = (message: string) => {
     setToastMessage(message);
@@ -99,7 +102,7 @@ export const WalletDashboardScreen: React.FC<WalletDashboardScreenProps> = ({ na
           if (s === 'sol' || s === 'solana') return 'SOL';
           return s.toUpperCase();
         };
-        const desiredSymbols = Array.from(new Set(list.map(toSymbol))).filter(s => ['BTC','ETH','SOL'].includes(s));
+        const desiredSymbols = Array.from(new Set(list.map((v: string) => toSymbol(v)))).filter(s => ['BTC','ETH','SOL'].includes(s));
         if (desiredSymbols.length === 0) {
           setSelectedTokens([]);
           setHasSelection(false);
@@ -195,7 +198,7 @@ export const WalletDashboardScreen: React.FC<WalletDashboardScreenProps> = ({ na
             if (s === 'sol' || s === 'solana') return 'SOL';
             return s.toUpperCase();
           };
-          const desiredSymbols = Array.from(new Set(list.map(toSymbol))).filter(s => ['BTC','ETH','SOL'].includes(s));
+          const desiredSymbols = Array.from(new Set(list.map((v: string) => toSymbol(v)))).filter(s => ['BTC','ETH','SOL'].includes(s));
           
           // Create token objects with fresh market data
           const defaultsBySymbol: Record<string, NetworkToken> = {
@@ -258,24 +261,18 @@ export const WalletDashboardScreen: React.FC<WalletDashboardScreenProps> = ({ na
 
   useEffect(() => { loadSelectedTokens(); }, []);
 
-  useEffect(() => {
-    const unsubscribe = navigation.addListener('focus', async () => {
-      // Clear immediately to avoid showing stale tokens when returning
-      setSelectedTokens([]);
-      // Load tokens and refresh market data
-      await loadSelectedTokensAndRefresh();
-    });
-    return unsubscribe;
-  }, [navigation]);
+  // No automatic refresh on screen focus - balances load once when wallet changes
+
+  // No automatic background refresh - only manual refresh by user
+  // Balances are loaded once when wallet changes and tokens are selected
+  // User can manually refresh using the refresh button
 
   useEffect(() => {
     if (wallet) {
       console.log(`🔄 Wallet changed to: ${wallet.address}`);
-      // Clear balances first to show loading state
-      setBalance('0.0');
-      setBalances({});
-      // Then load new balances
+      // Load balances silently without clearing first (no loading state)
       loadWalletBalance();
+      loadTokenBalances();
     } else {
       console.log('🔄 No wallet selected');
       setBalance('0.0');
@@ -285,7 +282,7 @@ export const WalletDashboardScreen: React.FC<WalletDashboardScreenProps> = ({ na
 
   useEffect(() => {
     if (wallet && selectedTokens.length > 0) {
-      console.log(`🔄 Selected tokens changed, loading balances for: ${wallet.address}`);
+      console.log(`🔄 Selected tokens changed, loading balances silently for: ${wallet.address}`);
       loadTokenBalances();
     } else {
       setBalances({});
@@ -368,6 +365,7 @@ export const WalletDashboardScreen: React.FC<WalletDashboardScreenProps> = ({ na
       if (!wallet || !selectedTokens.length) {
         console.log('No wallet or tokens selected, clearing balances');
         setBalances({});
+        setTotalUSDValue(0);
         return;
       }
 
@@ -379,6 +377,11 @@ export const WalletDashboardScreen: React.FC<WalletDashboardScreenProps> = ({ na
       const ethService = ETHBalanceService.getInstance();
       const solService = SOLBalanceService.getInstance();
       const addressService = TokenAddressService.getInstance();
+
+      // Clear caches to ensure fresh data
+      ethService.clearCache();
+      btcService.clearCache();
+      solService.clearCache();
 
       // Load balances for each selected token
       for (const token of selectedTokens) {
@@ -423,10 +426,29 @@ export const WalletDashboardScreen: React.FC<WalletDashboardScreenProps> = ({ na
 
       console.log(`Final token balances:`, newBalances);
       setBalances(newBalances);
+
+      // Calculate total USD value
+      calculateTotalUSDValue(newBalances, selectedTokens);
     } catch (error) {
       console.error('❌ Failed to load token balances:', error);
       setBalances({});
+      setTotalUSDValue(0);
     }
+  };
+
+  const calculateTotalUSDValue = (balances: Record<string, number>, tokens: NetworkToken[]) => {
+    let total = 0;
+    
+    for (const token of tokens) {
+      const balance = balances[token.id] || 0;
+      const price = token.priceUSDT || 0;
+      const usdValue = balance * price;
+      total += usdValue;
+      console.log(`💰 ${token.symbol}: ${balance} * $${price} = $${usdValue.toFixed(2)}`);
+    }
+    
+    console.log(`💰 Total USD Value: $${total.toFixed(2)}`);
+    setTotalUSDValue(total);
   };
 
   const onRefresh = async () => {
@@ -439,20 +461,7 @@ export const WalletDashboardScreen: React.FC<WalletDashboardScreenProps> = ({ na
     setRefreshing(false);
   };
 
-  const handleScroll = (e: any) => {
-    try {
-      const y = e?.nativeEvent?.contentOffset?.y || 0;
-      const dy = y - lastScrollYRef.current;
-      lastScrollYRef.current = y;
-      const now = Date.now();
-      // Trigger a lightweight refresh when user scrolls downward by >80px,
-      // throttled to avoid excessive calls (every 8s max)
-      if (dy > 80 && !refreshing && !balanceLoading && now - lastAutoRefreshTsRef.current > 8000) {
-        lastAutoRefreshTsRef.current = now;
-        onRefresh();
-      }
-    } catch {}
-  };
+  // Scroll handling removed - no automatic refresh on scroll
 
   const refreshMarketData = async () => {
     try {
@@ -488,6 +497,28 @@ export const WalletDashboardScreen: React.FC<WalletDashboardScreenProps> = ({ na
 
   const handleReceiveMoney = () => {
     navigation.navigate('SelectReceiveToken');
+  };
+
+  const handleTokenAction = (token: NetworkToken, action: 'send' | 'topup' | 'receive') => {
+    setActionMenuVisible(false);
+    setSelectedTokenForAction(null);
+
+    switch (action) {
+      case 'send':
+        navigation.navigate('SendDialog', { token });
+        break;
+      case 'topup':
+        navigation.navigate('TopUp', { token });
+        break;
+      case 'receive':
+        navigation.navigate('ReceiveDialog', { token });
+        break;
+    }
+  };
+
+  const showTokenActionMenu = (token: NetworkToken) => {
+    setSelectedTokenForAction(token);
+    setActionMenuVisible(true);
   };
 
 
@@ -623,8 +654,9 @@ export const WalletDashboardScreen: React.FC<WalletDashboardScreenProps> = ({ na
     balanceRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
     bigBalance: { fontSize: 32, fontWeight: '800', color: theme.colors.text },
     eyeButton: { padding: 6, borderRadius: 16 },
+    refreshButton: { padding: 6, borderRadius: 16, marginLeft: 8 },
     actionsRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 16 },
-    pillButton: { flex: 1, paddingVertical: 14, borderRadius: 14, alignItems: 'center', marginHorizontal: 6 },
+    pillButton: { flex: 1, paddingVertical: 14, borderRadius: 14, alignItems: 'center', marginHorizontal: 4 },
     pillPrimary: { backgroundColor: theme.colors.primary },
     pillDark: { backgroundColor: theme.colors.text },
     pillBordered: { backgroundColor: 'transparent', borderWidth: 1, borderColor: theme.colors.primary },
@@ -727,6 +759,38 @@ export const WalletDashboardScreen: React.FC<WalletDashboardScreenProps> = ({ na
       alignItems: 'center',
       justifyContent: 'center',
     },
+    actionMenuContainer: {
+      backgroundColor: theme.colors.surface,
+      borderTopLeftRadius: 20,
+      borderTopRightRadius: 20,
+      maxHeight: '40%',
+      marginTop: 'auto',
+    },
+    actionMenuHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 20,
+      paddingTop: 16,
+      paddingBottom: 8,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.colors.border,
+    },
+    actionMenuTitle: { fontSize: 18, fontWeight: '700', color: theme.colors.text },
+    actionMenuItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 20,
+      paddingVertical: 16,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.colors.border,
+    },
+    actionMenuItemText: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: theme.colors.text,
+      marginLeft: 16,
+    },
   });
 
   if (!wallet) {
@@ -805,8 +869,6 @@ export const WalletDashboardScreen: React.FC<WalletDashboardScreenProps> = ({ na
 
       <ScrollView
         style={styles.scrollContainer}
-        onScroll={handleScroll}
-        scrollEventThrottle={16}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
@@ -814,10 +876,17 @@ export const WalletDashboardScreen: React.FC<WalletDashboardScreenProps> = ({ na
 
       <View style={styles.balanceCard}>
         <View style={styles.balanceRow}>
-          <Text style={styles.bigBalance}>{isBalanceHidden ? '•••••' : `${Number(balance).toFixed(6)} ETH`}</Text>
-          <TouchableOpacity style={styles.eyeButton} onPress={() => setIsBalanceHidden(v => !v)}>
-            <Icon name={isBalanceHidden ? 'visibility-off' : 'visibility'} size={22} color={theme.colors.text} />
-          </TouchableOpacity>
+          <Text style={styles.bigBalance}>
+            {isBalanceHidden ? '•••••' : formatPrice(totalUSDValue)}
+          </Text>
+          <View style={styles.headerActions}>
+            <TouchableOpacity style={styles.eyeButton} onPress={() => setIsBalanceHidden(v => !v)}>
+              <Icon name={isBalanceHidden ? 'visibility-off' : 'visibility'} size={22} color={theme.colors.text} />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.refreshButton} onPress={onRefresh}>
+              <Icon name="refresh" size={20} color={theme.colors.text} />
+            </TouchableOpacity>
+          </View>
         </View>
         {/* Inline spinner removed; using full-screen overlay below */}
         <View style={styles.actionsRow}>
@@ -826,6 +895,9 @@ export const WalletDashboardScreen: React.FC<WalletDashboardScreenProps> = ({ na
           </TouchableOpacity>
           <TouchableOpacity style={[styles.pillButton, styles.pillPrimary]} onPress={handleReceiveMoney}>
             <Text style={styles.pillTextLight}>Receive</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.pillButton, styles.pillPrimary]} onPress={() => navigation.navigate('TopUp')}>
+            <Text style={styles.pillTextLight}>Top Up</Text>
           </TouchableOpacity>
         </View>
         
@@ -861,7 +933,11 @@ export const WalletDashboardScreen: React.FC<WalletDashboardScreenProps> = ({ na
             .filter(t => !hideSmallAssets || (balances[t.id] || 0) > 0)
             .map((t, idx) => (
               <View key={`${String(t.id).toLowerCase()}-${idx}`}>
-                <View style={styles.tokenRow}>
+                <TouchableOpacity
+                  style={styles.tokenRow}
+                  onPress={() => showTokenActionMenu(t)}
+                  activeOpacity={0.7}
+                >
                   {t.iconUrl ? (
                     <Image source={{ uri: t.iconUrl }} style={[styles.tokenIcon, { borderRadius: 14 }]} />
                   ) : (
@@ -874,7 +950,7 @@ export const WalletDashboardScreen: React.FC<WalletDashboardScreenProps> = ({ na
                       <Text style={styles.tokenSymbol}>{t.symbol}</Text>
                     </View>
                     <View style={styles.tokenPriceRow}>
-                      <Text style={styles.tokenPriceText}>{`${t.priceUSDT} USDT`}</Text>
+                      <Text style={styles.tokenPriceText}>{formatPrice(t.priceUSDT || 0)}</Text>
                       <Text style={(t.changePct24h || 0) >= 0 ? styles.pctGreen : styles.pctRed}>
                         {`${(t.changePct24h || 0) >= 0 ? '+' : ''}${t.changePct24h || 0}%`}
                       </Text>
@@ -892,10 +968,10 @@ export const WalletDashboardScreen: React.FC<WalletDashboardScreenProps> = ({ na
                       }
                     </Text>
                     <Text style={[{ color: theme.colors.textSecondary }]}>
-                      {`${((balances[t.id] || 0) * (t.priceUSDT || 0)).toFixed(2)} USDT`}
+                      {formatPrice((balances[t.id] || 0) * (t.priceUSDT || 0))}
                     </Text>
                   </View>
-                </View>
+                </TouchableOpacity>
                 {idx < selectedTokens.length - 1 && <View style={styles.divider} />}
               </View>
             ))}
@@ -951,6 +1027,46 @@ export const WalletDashboardScreen: React.FC<WalletDashboardScreenProps> = ({ na
                 updateCellsBatchingPeriod={50}
               />
             )}
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Token Action Menu Modal */}
+      <Modal visible={actionMenuVisible} transparent animationType="fade" onRequestClose={() => setActionMenuVisible(false)}>
+        <TouchableOpacity style={styles.sheetOverlay} activeOpacity={1} onPress={() => setActionMenuVisible(false)}>
+          <TouchableOpacity activeOpacity={1} style={styles.actionMenuContainer}>
+            <View style={styles.actionMenuHeader}>
+              <Text style={styles.actionMenuTitle}>
+                {selectedTokenForAction?.symbol} Actions
+              </Text>
+              <TouchableOpacity style={styles.closeBtn} onPress={() => setActionMenuVisible(false)}>
+                <Icon name="close" size={22} color={theme.colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity
+              style={styles.actionMenuItem}
+              onPress={() => selectedTokenForAction && handleTokenAction(selectedTokenForAction, 'send')}
+            >
+              <Icon name="send" size={24} color={theme.colors.primary} />
+              <Text style={styles.actionMenuItemText}>Send</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.actionMenuItem}
+              onPress={() => selectedTokenForAction && handleTokenAction(selectedTokenForAction, 'topup')}
+            >
+              <Icon name="add-circle" size={24} color={theme.colors.success} />
+              <Text style={styles.actionMenuItemText}>Top Up</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.actionMenuItem}
+              onPress={() => selectedTokenForAction && handleTokenAction(selectedTokenForAction, 'receive')}
+            >
+              <Icon name="call-received" size={24} color={theme.colors.accent} />
+              <Text style={styles.actionMenuItemText}>Receive</Text>
+            </TouchableOpacity>
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>

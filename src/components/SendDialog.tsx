@@ -13,11 +13,17 @@ import {
   Dimensions,
   StatusBar,
   Image,
+  ActivityIndicator,
 } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 import { useWeb3Auth } from '../context/Web3AuthContext';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { NetworkToken } from '../services/tokenService';
+import TransactionService from '../services/transactionService';
+import TokenAddressService from '../services/tokenAddressService';
+import BTCBalanceService from '../services/btcBalanceService';
+import ETHBalanceService from '../services/ethBalanceService';
+import SOLBalanceService from '../services/solBalanceService';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -35,12 +41,12 @@ export const SendDialog: React.FC<SendDialogProps> = ({ visible, token, onClose 
   const [loading, setLoading] = useState(false);
   const [balance, setBalance] = useState('0');
   const [imageError, setImageError] = useState(false);
+  const [loadingBalance, setLoadingBalance] = useState(false);
 
   useEffect(() => {
     if (visible && token) {
       console.log('SendDialog: Token received:', token);
-      // Set mock balance for the selected token
-      setBalance('0');
+      loadTokenBalance();
       // Reset form when dialog opens
       setRecipientAddress('');
       setAmount('');
@@ -48,6 +54,42 @@ export const SendDialog: React.FC<SendDialogProps> = ({ visible, token, onClose 
       setImageError(false);
     }
   }, [visible, token]);
+
+  const loadTokenBalance = async () => {
+    if (!wallet || !token) return;
+    
+    try {
+      setLoadingBalance(true);
+      const symbol = token.symbol.toUpperCase();
+      
+      if (symbol === 'ETH') {
+        const ethService = ETHBalanceService.getInstance();
+        const balanceInfo = await ethService.getETHBalance(wallet.address, 'sepolia');
+        setBalance(balanceInfo.balance.toFixed(6));
+      } else if (symbol === 'BTC') {
+        const addressService = TokenAddressService.getInstance();
+        const addressInfo = await addressService.getTokenAddressInfo(token, wallet.mnemonic);
+        if (addressInfo?.address) {
+          const btcService = BTCBalanceService.getInstance();
+          const balanceInfo = await btcService.getBTCBalance(addressInfo.address, true);
+          setBalance(balanceInfo.balance.toFixed(8));
+        }
+      } else if (symbol === 'SOL') {
+        const addressService = TokenAddressService.getInstance();
+        const addressInfo = await addressService.getTokenAddressInfo(token, wallet.mnemonic);
+        if (addressInfo?.address) {
+          const solService = SOLBalanceService.getInstance();
+          const balanceInfo = await solService.getSOLBalance(addressInfo.address, 'devnet');
+          setBalance(balanceInfo.balance.toFixed(6));
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load balance:', error);
+      setBalance('0');
+    } finally {
+      setLoadingBalance(false);
+    }
+  };
 
   const getTokenIconUrl = (idOrSymbol?: string | null) => {
     if (!idOrSymbol) return undefined;
@@ -61,6 +103,11 @@ export const SendDialog: React.FC<SendDialogProps> = ({ visible, token, onClose 
   };
 
   const handleSend = async () => {
+    if (!wallet) {
+      Alert.alert('Error', 'No wallet connected');
+      return;
+    }
+
     if (!recipientAddress.trim()) {
       Alert.alert('Error', 'Please enter recipient address');
       return;
@@ -76,29 +123,44 @@ export const SendDialog: React.FC<SendDialogProps> = ({ visible, token, onClose 
       return;
     }
 
+    if (!wallet.mnemonic) {
+      Alert.alert('Error', 'Wallet mnemonic not available');
+      return;
+    }
+
     try {
       setLoading(true);
       
-      // Simulate sending transaction
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      Alert.alert(
-        'Transaction Sent',
-        `Successfully sent ${amount} ${token?.symbol} to ${recipientAddress.slice(0, 10)}...${recipientAddress.slice(-10)}`,
-        [
-          {
-            text: 'OK',
-            onPress: () => {
-              setRecipientAddress('');
-              setAmount('');
-              onClose();
-            }
-          }
-        ]
+      const transactionService = TransactionService.getInstance();
+      const result = await transactionService.sendTransaction(
+        token?.symbol || '',
+        wallet.mnemonic,
+        recipientAddress,
+        amount
       );
-    } catch (error) {
+
+      if (result.success) {
+        Alert.alert(
+          'Transaction Sent',
+          `Successfully sent ${amount} ${token?.symbol}\n\nTransaction Hash:\n${result.txHash?.slice(0, 20)}...${result.txHash?.slice(-20)}`,
+          [
+            {
+              text: 'OK',
+              onPress: () => {
+                setRecipientAddress('');
+                setAmount('');
+                loadTokenBalance(); // Reload balance
+                onClose();
+              }
+            }
+          ]
+        );
+      } else {
+        Alert.alert('Transaction Failed', result.error || 'Unknown error occurred');
+      }
+    } catch (error: any) {
       console.error('Error sending transaction:', error);
-      Alert.alert('Error', 'Failed to send transaction. Please try again.');
+      Alert.alert('Error', error.message || 'Failed to send transaction. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -392,7 +454,11 @@ export const SendDialog: React.FC<SendDialogProps> = ({ visible, token, onClose 
                 </View>
                 <View style={styles.balanceInfo}>
                   <Text style={styles.balanceLabel}>Available</Text>
-                  <Text style={styles.balanceAmount}>{balance} {token.symbol || 'Token'}</Text>
+                  {loadingBalance ? (
+                    <ActivityIndicator size="small" color={theme.colors.primary} />
+                  ) : (
+                    <Text style={styles.balanceAmount}>{balance} {token.symbol || 'Token'}</Text>
+                  )}
                 </View>
               </View>
 
@@ -452,11 +518,18 @@ export const SendDialog: React.FC<SendDialogProps> = ({ visible, token, onClose 
                 activeOpacity={0.8}
               >
                 <Text style={[
-                  !isFormValid 
-                    ? styles.sendButtonTextDisabled 
+                  !isFormValid
+                    ? styles.sendButtonTextDisabled
                     : styles.sendButtonText
                 ]}>
-                  {loading ? 'Sending...' : `Send ${token.symbol || 'Token'}`}
+                  {loading ? (
+                    <>
+                      <ActivityIndicator size="small" color="#FFFFFF" style={{ marginRight: 8 }} />
+                      Sending...
+                    </>
+                  ) : (
+                    `Send ${token.symbol || 'Token'}`
+                  )}
                 </Text>
               </TouchableOpacity>
 

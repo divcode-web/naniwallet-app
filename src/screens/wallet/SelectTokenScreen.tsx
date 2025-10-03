@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, FlatList, Image, ActivityIndicator } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
+import { useCurrency } from '../../context/CurrencyContext';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import TokenService, { NetworkToken } from '../../services/tokenService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -10,6 +11,7 @@ interface Props { navigation: any }
 
 export const SelectTokenScreen: React.FC<Props> = ({ navigation }) => {
   const { theme } = useTheme();
+  const { formatPrice } = useCurrency();
   const [query, setQuery] = useState('');
   const [tokens, setTokens] = useState<NetworkToken[]>([]);
   const [enabled, setEnabled] = useState<Record<string, boolean>>({});
@@ -203,7 +205,7 @@ export const SelectTokenScreen: React.FC<Props> = ({ navigation }) => {
                 <Text style={styles.tag}>{item.name}</Text>
               </View>
               <View style={styles.priceRow}>
-                <Text style={styles.price}>{item.priceUSDT ? item.priceUSDT : '--'} USDT</Text>
+                <Text style={styles.price}>{item.priceUSDT ? formatPrice(item.priceUSDT) : '--'}</Text>
                 <Text style={[styles.pct, { color: (item.changePct24h || 0) >= 0 ? theme.colors.success : theme.colors.error }]}>
                   {item.changePct24h ? `${item.changePct24h > 0 ? '+' : ''}${item.changePct24h}%` : '--'}
                 </Text>

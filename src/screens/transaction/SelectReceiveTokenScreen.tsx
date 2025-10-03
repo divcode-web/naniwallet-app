@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { useLocale } from '../../context/LocaleContext';
+import { useCurrency } from '../../context/CurrencyContext';
 import { useWeb3Auth } from '../../context/Web3AuthContext';
 import { t } from '../../i18n';
 import Icon from 'react-native-vector-icons/MaterialIcons';
@@ -26,6 +27,7 @@ interface SelectReceiveTokenScreenProps {
 export const SelectReceiveTokenScreen: React.FC<SelectReceiveTokenScreenProps> = ({ navigation }) => {
   const { theme } = useTheme();
   const { locale } = useLocale();
+  const { formatPrice } = useCurrency();
   const { activeWallet } = useWeb3Auth();
   const [searchQuery, setSearchQuery] = useState('');
   const [tokens, setTokens] = useState<NetworkToken[]>([]);
@@ -209,7 +211,7 @@ export const SelectReceiveTokenScreen: React.FC<SelectReceiveTokenScreenProps> =
           <View style={styles.tokenInfo}>
             <Text style={[styles.tokenSymbol, { color: theme.colors.text }]}>{item.symbol}</Text>
             <View style={styles.tokenPriceRow}>
-              <Text style={[styles.tokenPrice, { color: theme.colors.textSecondary }]}>{`${item.priceUSDT} USDT`}</Text>
+              <Text style={[styles.tokenPrice, { color: theme.colors.textSecondary }]}>{formatPrice(item.priceUSDT || 0)}</Text>
               <Text style={[styles.tokenChange, { color: (item.changePct24h || 0) >= 0 ? theme.colors.success : theme.colors.error }]}>
                 {`${(item.changePct24h || 0) >= 0 ? '+' : ''}${item.changePct24h || 0}%`}
               </Text>

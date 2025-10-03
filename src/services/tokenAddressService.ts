@@ -54,9 +54,10 @@ export default class TokenAddressService {
           isNative: true
         };
       } else if (symbol === 'ETH') {
+        const derived = this.tryDeriveEthAddress(mnemonic);
         info = {
-          address: WalletService.getInstance().getCurrentWallet()?.address,
-          network: 'Ethereum',
+          address: derived ?? '',
+          network: 'Ethereum Sepolia Testnet',
           networkId: 'ethereum',
           isNative: true
         };
@@ -114,6 +115,19 @@ export default class TokenAddressService {
       return kp.publicKey.toBase58();
     } catch (error) {
       console.log('SOL derivation failed:', error);
+      return null;
+    }
+  }
+
+  private tryDeriveEthAddress(mnemonic: string): string | null {
+    try {
+      if (!mnemonic) return null;
+      
+      // Derive Ethereum address from mnemonic
+      const wallet = Wallet.fromPhrase(mnemonic);
+      return wallet.address;
+    } catch (error) {
+      console.log('ETH derivation failed:', error);
       return null;
     }
   }

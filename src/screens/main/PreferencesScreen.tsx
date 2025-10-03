@@ -3,6 +3,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { View, Text, StyleSheet, TouchableOpacity, Switch, BackHandler } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { useLocale } from '../../context/LocaleContext';
+import { useCurrency } from '../../context/CurrencyContext';
 import { t } from '../../i18n';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -12,6 +13,7 @@ interface Props { navigation: any }
 export const PreferencesScreen: React.FC<Props> = ({ navigation }) => {
   const { theme, setThemeMode, changePrimaryColor } = useTheme();
   const { locale } = useLocale();
+  const { currency, setCurrency, currencyInfo } = useCurrency();
   const languageLabel = useMemo(() => {
     switch (locale) {
       case 'en':
@@ -29,6 +31,7 @@ export const PreferencesScreen: React.FC<Props> = ({ navigation }) => {
   const [hideBalances, setHideBalances] = useState(false);
   const [themeSheetOpen, setThemeSheetOpen] = useState(false);
   const [colorSheetOpen, setColorSheetOpen] = useState(false);
+  const [currencySheetOpen, setCurrencySheetOpen] = useState(false);
   const [currentTheme, setCurrentTheme] = useState<'Auto' | 'Light' | 'Dark'>('Auto');
   const [currentPrimaryColor, setCurrentPrimaryColor] = useState<string>('#2E7D32');
 
@@ -55,15 +58,16 @@ export const PreferencesScreen: React.FC<Props> = ({ navigation }) => {
 
   // Close sheets on hardware back instead of propagating to Home's handler
   useEffect(() => {
-    if (!themeSheetOpen && !colorSheetOpen) return;
+    if (!themeSheetOpen && !colorSheetOpen && !currencySheetOpen) return;
     const onBack = () => {
       if (themeSheetOpen) setThemeSheetOpen(false);
       if (colorSheetOpen) setColorSheetOpen(false);
+      if (currencySheetOpen) setCurrencySheetOpen(false);
       return true; // consume back press
     };
     const sub = BackHandler.addEventListener('hardwareBackPress', onBack);
     return () => sub.remove();
-  }, [themeSheetOpen, colorSheetOpen]);
+  }, [themeSheetOpen, colorSheetOpen, currencySheetOpen]);
   const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: theme.colors.background },
     header: { flexDirection: 'row', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.border, backgroundColor: theme.colors.surface },
@@ -84,13 +88,13 @@ export const PreferencesScreen: React.FC<Props> = ({ navigation }) => {
       </View>
       <View style={styles.content}>
         <View style={{ backgroundColor: theme.colors.surface, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border }}>
-          <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16 }}>
+          <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16 }} onPress={() => setCurrencySheetOpen(true)}>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               <Icon name="attach-money" size={22} color={theme.colors.text} style={{ marginRight: 12 }} />
               <Text style={{ color: theme.colors.text }}>{t('currency', locale)}</Text>
             </View>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <Text style={{ color: theme.colors.textSecondary, marginRight: 6 }}>USD</Text>
+              <Text style={{ color: theme.colors.textSecondary, marginRight: 6 }}>{currencyInfo.symbol} {currencyInfo.code}</Text>
               <Icon name="chevron-right" size={22} color={theme.colors.textSecondary} />
             </View>
           </TouchableOpacity>
@@ -244,6 +248,40 @@ export const PreferencesScreen: React.FC<Props> = ({ navigation }) => {
             </View>
           </View>
           <View style={{ height: 20 }} />
+        </View>
+      )}
+
+      {currencySheetOpen && (
+        <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: theme.colors.surface, borderTopLeftRadius: 12, borderTopRightRadius: 12, borderWidth: 1, borderColor: theme.colors.border }}>
+          <View style={{ alignItems: 'center', paddingTop: 8 }}>
+            <View style={{ width: 44, height: 3, backgroundColor: theme.colors.border, borderRadius: 2 }} />
+          </View>
+          <Text style={{ textAlign: 'center', paddingVertical: 12, color: theme.colors.text, fontWeight: '600' }}>{t('currency', locale)}</Text>
+          {[
+            { code: 'USD', symbol: '$', name: 'US Dollar', flag: '🇺🇸' },
+            { code: 'GBP', symbol: '£', name: 'British Pound', flag: '🇬🇧' },
+          ].map((currencyOption) => (
+            <TouchableOpacity
+              key={currencyOption.code}
+              style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 14 }}
+              onPress={() => {
+                setCurrency(currencyOption.code as any);
+                setCurrencySheetOpen(false);
+              }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Text style={{ fontSize: 20, marginRight: 12 }}>{currencyOption.flag}</Text>
+                <View>
+                  <Text style={{ color: theme.colors.text, fontWeight: '600' }}>{currencyOption.name}</Text>
+                  <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>{currencyOption.symbol} {currencyOption.code}</Text>
+                </View>
+              </View>
+              {currency === currencyOption.code && (
+                <Icon name="check" size={20} color={theme.colors.primary} />
+              )}
+            </TouchableOpacity>
+          ))}
+          <View style={{ height: 12 }} />
         </View>
       )}
     </SafeAreaView>

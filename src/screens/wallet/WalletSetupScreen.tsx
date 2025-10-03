@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
   Share,
   ActivityIndicator,
   Animated,
+  BackHandler,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../context/ThemeContext';
@@ -45,6 +46,23 @@ export const WalletSetupScreen: React.FC<WalletSetupScreenProps> = ({ navigation
   const [toastMessage, setToastMessage] = useState('');
   const toastOpacity = useRef(new Animated.Value(0)).current;
   const enteredFromMain = !!route?.params?.fromMain;
+
+  // Handle hardware back button
+  useEffect(() => {
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (currentStep === 'welcome') {
+        // On welcome screen, exit app
+        BackHandler.exitApp();
+        return true;
+      } else {
+        // On other screens, go back to welcome
+        setCurrentStep('welcome');
+        return true;
+      }
+    });
+
+    return () => backHandler.remove();
+  }, [currentStep]);
 
   const showToast = (message: string) => {
     setToastMessage(message);
@@ -107,29 +125,47 @@ export const WalletSetupScreen: React.FC<WalletSetupScreenProps> = ({ navigation
 
   const handleImportFromMnemonic = async () => {
     try {
-      if (!validateMnemonic(importMnemonic.trim())) {
+      const trimmedMnemonic = importMnemonic.trim();
+      
+      console.log('🔍 Validating mnemonic...');
+      if (!validateMnemonic(trimmedMnemonic)) {
         Alert.alert(t('wallet_setup_invalid_mnemonic', locale), t('wallet_setup_invalid_mnemonic_message', locale));
         return;
       }
       
-      console.log('🔄 Importing wallet from mnemonic...');
+      console.log('🔄 Starting wallet import...');
       setImportingMnemonic(true);
-      // Yield to UI so in-button spinner renders
+      
+      // Yield to UI so spinner renders
       await new Promise(resolve => setTimeout(resolve, 100));
-      await importWalletFromMnemonic(importMnemonic.trim());
-      console.log('✅ Wallet imported successfully from mnemonic');
+      
+      console.log('📥 Calling importWalletFromMnemonic...');
+      const startTime = Date.now();
+      
+      await importWalletFromMnemonic(trimmedMnemonic);
+      
+      const duration = Date.now() - startTime;
+      console.log(`✅ Wallet imported successfully in ${duration}ms`);
+      
       showToast(t('wallet_setup_import_success', locale));
       await new Promise(resolve => setTimeout(resolve, 1200));
+      
       if (needsWalletSetup) {
+        console.log('🎯 Completing wallet setup...');
         handleWalletSetupComplete();
       } else {
-        // We are in MainStack (post-disconnect flow). Go straight to Home.
+        console.log('🏠 Navigating to Home...');
         navigation.reset({ index: 0, routes: [{ name: 'Home' as never }] });
       }
     } catch (error: any) {
-      console.error('❌ Failed to import wallet from mnemonic:', error);
-      Alert.alert(t('wallet_setup_error', locale), error.message || t('wallet_setup_import_failed', locale));
+      console.error('❌ Import failed:', error);
+      console.error('❌ Error stack:', error.stack);
+      Alert.alert(
+        t('wallet_setup_error', locale),
+        error.message || t('wallet_setup_import_failed', locale)
+      );
     } finally {
+      console.log('🔄 Resetting import loading state');
       setImportingMnemonic(false);
     }
   };
@@ -616,8 +652,21 @@ export const WalletSetupScreen: React.FC<WalletSetupScreenProps> = ({ navigation
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        {wallet ? (
-          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+        {currentStep !== 'welcome' ? (
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => {
+              if (currentStep === 'import') {
+                setCurrentStep('welcome');
+              } else if (currentStep === 'mnemonic') {
+                setCurrentStep('welcome');
+              } else if (currentStep === 'confirm') {
+                setCurrentStep('mnemonic');
+              } else {
+                setCurrentStep('welcome');
+              }
+            }}
+          >
             <Icon name="arrow-back" size={22} color={theme.colors.text} />
           </TouchableOpacity>
         ) : (

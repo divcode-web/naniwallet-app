@@ -12,3 +12,8 @@ global.process = require('process/browser');
 // Stream polyfill
 import * as stream from 'readable-stream';
 global.stream = stream;
+
+// TextEncoder/TextDecoder polyfill for crypto libraries
+import { TextEncoder, TextDecoder } from 'text-encoding';
+global.TextEncoder = TextEncoder;
+global.TextDecoder = TextDecoder;

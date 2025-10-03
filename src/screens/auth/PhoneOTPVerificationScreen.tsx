@@ -380,16 +380,12 @@ export const PhoneOTPVerificationScreen: React.FC<PhoneOTPVerificationScreenProp
       
       await verifyPhoneOTPAndCreateAccount(email, password, fullName, getFullPhoneNumber(), otpCode);
       
-      console.log('✅ Phone OTP verified and account created, navigating to KYC...');
+      console.log('✅ Phone OTP verified and account created, navigating to Wallet Setup...');
       
-      // Navigate to KYC onboarding instead of directly to wallet setup
-      navigation.navigate('KYCWelcome', {
-        email: email,
-        fullName: fullName,
-        phoneNumber: getFullPhoneNumber()
-      });
+      // Navigate to Wallet Setup (skip KYC)
+      navigation.navigate('WalletSetup');
       
-      console.log('🧭 Navigation to KYCWelcome completed');
+      console.log('🧭 Navigation to WalletSetup completed');
     } catch (error: any) {
       console.error('❌ Phone OTP verification error:', error);
       Alert.alert('Verification Failed', error.message || 'Invalid OTP code');
